@@ -30,6 +30,11 @@ import {
 import { renderRowLevelPermissionFilterToSql } from 'src/engine/twenty-orm/utils/render-row-level-permission-filter-to-sql.util';
 import { resolveRowLevelPermissionRecordFilter } from 'src/engine/twenty-orm/utils/resolve-row-level-permission-record-filter.util';
 import { validateRLSPredicatesForRecords } from 'src/engine/twenty-orm/utils/validate-rls-predicates-for-records.util';
+import { applyZoneScope } from 'src/engine/twenty-orm/zone-scope/apply-zone-scope.util';
+import {
+  enforceZoneScopeOnInsert,
+  enforceZoneScopeOnUpdate,
+} from 'src/engine/twenty-orm/zone-scope/enforce-zone-scope-on-write.util';
 import {
   TwentyOrmException,
   TwentyOrmExceptionCode,
@@ -923,6 +928,13 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       recordsToInsert = enriched.entities as Partial<ObjectRecord>[];
     }
 
+    recordsToInsert = await enforceZoneScopeOnInsert({
+      context: this.options,
+      executor: this.options.executor,
+      flatObjectMetadata: this.options.flatObjectMetadata,
+      records: recordsToInsert,
+    });
+
     const { columnNames, rows, parameters, insertedColumns, formattedRecords } =
       this.buildInsertRows(recordsToInsert);
 
@@ -1025,6 +1037,13 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
       filesFieldFileIds = enriched.fileIds;
       dataByInputIndex = enriched.entities as Partial<ObjectRecord>[];
     }
+
+    await enforceZoneScopeOnUpdate({
+      context: this.options,
+      executor: this.options.executor,
+      flatObjectMetadata: this.options.flatObjectMetadata,
+      updates: dataByInputIndex,
+    });
 
     for (const [index, input] of inputs.entries()) {
       const { id: _id, ...setColumns } = this.formatWriteData(
@@ -1276,6 +1295,13 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
         dataToWrite = enriched.entities[0] as Partial<ObjectRecord>;
       }
     }
+
+    await enforceZoneScopeOnUpdate({
+      context: this.options,
+      executor: this.options.executor,
+      flatObjectMetadata: this.options.flatObjectMetadata,
+      updates: kind === 'update' ? [dataToWrite] : [],
+    });
 
     let setColumns: Record<string, unknown> | undefined;
 
@@ -1543,6 +1569,13 @@ export class WorkspaceRepository<TEntity extends ObjectLiteral = ObjectRecord> {
     if (!queryBuilder.markRowLevelPermissionApplied(alias)) {
       return;
     }
+
+    applyZoneScope({
+      context: this.options,
+      queryBuilder,
+      alias,
+      flatObjectMetadata,
+    });
 
     const recordFilter = resolveRowLevelPermissionRecordFilter({
       internalContext: this.options.internalContext,
